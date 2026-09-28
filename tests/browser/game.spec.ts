@@ -122,7 +122,7 @@ test("tiny gestures, off-ball starts, Escape, canceled pointers and resize do no
 for (const viewport of [{ width: 390, height: 844 }, { width: 820, height: 1180 }, { width: 844, height: 390 }, { width: 1180, height: 820 }]) {
 test(`touch swipes aim and shoot at ${viewport.width}×${viewport.height}, cancellation is harmless, viewport does not scroll`, async ({
   browser,
-}) => {
+}, testInfo) => {
   const context = await browser.newContext({
     viewport,
     isMobile: true,
@@ -131,6 +131,8 @@ test(`touch swipes aim and shoot at ${viewport.width}×${viewport.height}, cance
   });
   const page = await context.newPage();
   await page.goto("/?test");
+  const shell = (await page.locator('.game-shell').boundingBox())!;
+  expect(shell).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
   const cdp = await context.newCDPSession(page);
   const p = await coordinates(page, -155, -210);
   await cdp.send("Input.dispatchTouchEvent", {
@@ -152,7 +154,7 @@ test(`touch swipes aim and shoot at ${viewport.width}×${viewport.height}, cance
   await page.waitForTimeout(60);
   const preview = (await state(page)).preview;
   expect(preview.x).toBeLessThan(320);
-  await page.screenshot({ path: `test-results/touch-aim-${viewport.width}.png` });
+  await page.screenshot({ path: testInfo.outputPath("aim.png") });
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchEnd",
     touchPoints: [],
@@ -177,7 +179,7 @@ test(`touch swipes aim and shoot at ${viewport.width}×${viewport.height}, cance
   expect((await state(page)).phase).toBe("ready");
   expect((await state(page)).shots).toBe(1);
   await page.screenshot({
-    path: `test-results/touch-ready-${viewport.width}.png`,
+    path: testInfo.outputPath("ready.png"),
     fullPage: true,
   });
   await context.close();

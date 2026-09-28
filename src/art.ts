@@ -1,4 +1,5 @@
 import {
+  FIELD,
   aftermathPosition,
   ballPosition,
   type Shot,
@@ -165,6 +166,7 @@ function keeper(c: CanvasRenderingContext2D, pose: KeeperPose) {
     line(c, [foot, [foot[0] + side * 8, foot[1]]], "#252a43", 8);
     line(c, [[foot[0] - 4, foot[1] + 3], [foot[0] + side * 8, foot[1] + 3]], "#f2eac9", 3);
   }
+  // Keep the gloves in front of the torso so central saves show hand contact.
   sprite(c, keeperBody, keeperPalette, -52, -54, 4);
   for (const [shoulder, elbow, hand] of [
     [[-15, -16], pose.leftElbow, pose.leftHand],
@@ -177,18 +179,92 @@ function keeper(c: CanvasRenderingContext2D, pose: KeeperPose) {
     c.fillStyle = "#a9bbaf";
     c.fillRect(hand[0] - 7, hand[1] + 4, 14, 4);
   }
-  sprite(c, keeperBody, keeperPalette, -52, -54, 4);
   c.restore();
 }
-const ballSprite = [
-  '....hhhhhh....', '...hwwwwwwh...', '..hwwwwwwwwh..', '.hwwhhwwwwwwh.',
-  'hwwhhhhwwhhwwh', 'hwwhhhhwhhhhwh', 'hwwwwhhwhhhhwh', 'hwwwwhhwwhhwwh',
-  'hwwwwhhhhwwwwh', 'hwwwhhhhwwwwdh', '.hwwwhhwwwddh.', '..hwwwwwdddh..',
-  '...hddddddh...', '....hhhhhh....',
-];
+// Bake the spinning panels into pixel frames; the silhouette and stadium
+// lighting stay still, avoiding the wobble of rotating a square bitmap.
+const BALL_PIXELS = 28;
+const BALL_FRAMES = 32;
+type PanelPoint = readonly [number, number];
+const pentagon = (x: number, y: number, radius: number, angle: number): PanelPoint[] =>
+  Array.from({ length: 5 }, (_, i) => [
+    x + Math.cos(angle + i * Math.PI * 2 / 5) * radius,
+    y + Math.sin(angle + i * Math.PI * 2 / 5) * radius,
+  ]);
+const ballPanels = [pentagon(0, -.06, .37, -Math.PI / 2)];
+for (let i = 0; i < 5; i++) {
+  const angle = -Math.PI / 2 + i * Math.PI * 2 / 5;
+  ballPanels.push(pentagon(Math.cos(angle) * .97, Math.sin(angle) * .97, .32, angle + Math.PI));
+}
+function insidePanel(x: number, y: number, panel: PanelPoint[]) {
+  let inside = false;
+  for (let i = 0, j = panel.length - 1; i < panel.length; j = i++) {
+    const [ax, ay] = panel[i], [bx, by] = panel[j];
+    if ((ay > y) !== (by > y) && x < (bx - ax) * (y - ay) / (by - ay) + ax) inside = !inside;
+  }
+  return inside;
+}
+const ballFrames = Array.from({ length: BALL_FRAMES }, (_, frame) => {
+  const bitmap = document.createElement('canvas');
+  bitmap.width = bitmap.height = BALL_PIXELS;
+  const c = bitmap.getContext('2d')!;
+  const angle = frame / BALL_FRAMES * Math.PI * 2;
+  const cos = Math.cos(angle), sin = Math.sin(angle);
+  for (let py = 0; py < BALL_PIXELS; py++) {
+    for (let px = 0; px < BALL_PIXELS; px++) {
+      const x = (px + .5) / BALL_PIXELS * 2 - 1;
+      const y = (py + .5) / BALL_PIXELS * 2 - 1;
+      const radius = Math.hypot(x, y);
+      if (radius > 1) continue;
+      const tx = x * cos + y * sin, ty = -x * sin + y * cos;
+      const dark = ballPanels.some(panel => insidePanel(tx, ty, panel));
+      const light = -.38 * x - .5 * y + .72 * Math.sqrt(1 - radius * radius);
+      // Discrete shades keep the light readable without smooth gradients.
+      const whites = ['#899baa', '#bcc9ce', '#e1e7e3', '#fff9e8'];
+      const blacks = ['#151d31', '#202b42', '#34415a', '#465570'];
+      const shade = light > .65 ? 3 : light > .3 ? 2 : light > 0 ? 1 : 0;
+      c.fillStyle = radius > .94 ? '#172238' : (dark ? blacks : whites)[shade];
+      c.fillRect(px, py, 1, 1);
+    }
+  }
+  return bitmap;
+});
 function ball(c: CanvasRenderingContext2D, x: number, y: number, r: number, rotation: number) {
-  c.save(); c.translate(Math.round(x / 2) * 2, Math.round(y / 2) * 2); c.rotate(Math.round(rotation * 4) / 4);
-  sprite(c, ballSprite, { h: '#252a43', w: '#fff3d6', d: '#a9bbaf' }, -r, -r, r / 7);
+  const frame = ((Math.round(rotation / (Math.PI * 2) * BALL_FRAMES) % BALL_FRAMES) + BALL_FRAMES) % BALL_FRAMES;
+  c.drawImage(ballFrames[frame], Math.round(x - r), Math.round(y - r), r * 2, r * 2);
+}
+
+function swipeGuide(c: CanvasRenderingContext2D, time: number, reducedMotion: boolean) {
+  // Two short sweeps, anchored beneath the ball, on the same chunky pixel grid.
+  const cycle = time % 1.8;
+  const progress = reducedMotion ? 1 : Math.min(1, cycle / 1.1);
+  const tipY = FIELD.ballY - 40 - Math.round(progress * 136 / 4) * 4;
+  c.save();
+  c.globalAlpha = reducedMotion ? 1 : Math.min(1, (1.8 - cycle) / 0.3);
+  c.translate(FIELD.ballX, 0);
+  // Dark outline and offset shadow keep the red legible against the turf.
+  c.fillStyle = "#251c35";
+  c.fillRect(-12, tipY + 32, 28, FIELD.ballY - tipY - 28);
+  c.fillStyle = "#b82f45";
+  c.fillRect(-8, tipY + 32, 16, FIELD.ballY - tipY - 32);
+  c.fillStyle = "#ff514f";
+  c.fillRect(-8, tipY + 32, 8, FIELD.ballY - tipY - 32);
+  sprite(c, [
+    '.....oo.....',
+    '....orro....',
+    '...orrrro...',
+    '..orhrrrro..',
+    '.orhhrrrrro.',
+    'orhhhrrrrrro',
+    'orrrrrrrrrro',
+    'ooooorrooooo',
+  ], { o: '#251c35', r: '#ff514f', h: '#ffac91' }, -24, tipY, 4);
+  c.font = "14px Pixel, monospace";
+  c.textAlign = "center";
+  c.fillStyle = "#251c35";
+  c.fillText("SWIPE TO SHOOT", 2, FIELD.ballY - 202);
+  c.fillStyle = "#fff0d5";
+  c.fillText("SWIPE TO SHOOT", 0, FIELD.ballY - 204);
   c.restore();
 }
 
@@ -199,6 +275,7 @@ export type Scene = {
   attempt: number;
   result: Outcome | null;
   ready: boolean;
+  swipeGuide: boolean;
   reducedMotion: boolean;
   time: number;
 };
@@ -337,26 +414,29 @@ export class Renderer {
         c.beginPath();
         c.ellipse(500, 622, 45, 15, 0, 0, Math.PI * 2);
         c.stroke();
-        line(
-          c,
-          [
-            [500, 556],
-            [500, 515],
-          ],
-          "#f3e7c28c",
-          2,
-        );
-        line(
-          c,
-          [
-            [491, 525],
-            [500, 515],
-            [509, 525],
-          ],
-          "#f3e7c28c",
-          2,
-        );
+        if (!state.swipeGuide) {
+          line(
+            c,
+            [
+              [500, 556],
+              [500, 515],
+            ],
+            "#f3e7c28c",
+            2,
+          );
+          line(
+            c,
+            [
+              [491, 525],
+              [500, 515],
+              [509, 525],
+            ],
+            "#f3e7c28c",
+            2,
+          );
+        }
       }
+      if (state.ready && state.swipeGuide) swipeGuide(c, state.time, state.reducedMotion);
       ball(c, 500, 601, 24, 0);
     }
   }

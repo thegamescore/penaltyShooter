@@ -43,6 +43,7 @@ let drag: {
 let keyboard = { x: 650, height: 105, power: 0.75 };
 let previousTime = performance.now();
 let animationTime = 0;
+let swipeGuideDismissed = false;
 
 function readout(value: Shot | null) {
   element<HTMLMeterElement>("power").value = value?.power ?? 0;
@@ -161,6 +162,7 @@ canvas.addEventListener("pointerdown", (event) => {
   );
   if (Math.hypot(p.x - FIELD.ballX, p.y - FIELD.ballY) > radius) return;
   if (phase === "result") reset();
+  swipeGuideDismissed = true;
   event.preventDefault();
   canvas.focus({ preventScroll: true });
   audio.unlock();
@@ -238,6 +240,7 @@ canvas.addEventListener("keydown", (event) => {
     return;
   }
   audio.unlock();
+  swipeGuideDismissed = true;
   if (event.key === "ArrowLeft") keyboard.x = Math.max(100, keyboard.x - 20);
   if (event.key === "ArrowRight") keyboard.x = Math.min(900, keyboard.x + 20);
   if (event.key === "ArrowUp")
@@ -280,6 +283,7 @@ function frame(now: number) {
       attempt,
       result,
       ready: phase === "ready",
+      swipeGuide: !swipeGuideDismissed && animationTime < 3.6,
       reducedMotion: reducedMotion.matches,
       time: animationTime,
     });
