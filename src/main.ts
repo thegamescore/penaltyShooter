@@ -1,6 +1,7 @@
 import "./style.css";
 import { Renderer } from "./art";
 import { MatchAudio } from "./audio";
+import { immersiveQuery, pitchView } from "./viewport";
 import {
   FIELD,
   gesture,
@@ -16,6 +17,7 @@ const canvas = element<HTMLCanvasElement>("pitch");
 const renderer = new Renderer(canvas);
 const audio = new MatchAudio();
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const immersive = matchMedia(immersiveQuery);
 const next = element<HTMLButtonElement>("next");
 const history: Outcome[] = [];
 let phase: "ready" | "aiming" | "flying" | "result" = "ready";
@@ -35,9 +37,12 @@ let drag: {
   time: number;
   lastX: number;
   lastY: number;
+  width: number;
+  height: number;
 } | null = null;
 let keyboard = { x: 650, height: 105, power: 0.75 };
 let previousTime = performance.now();
+let animationTime = 0;
 
 function readout(value: Shot | null) {
   element<HTMLMeterElement>("power").value = value?.power ?? 0;
@@ -71,6 +76,7 @@ function reset() {
   next.disabled = true;
   element("hint").textContent = "Drag the ball. Release to shoot.";
   readout(null);
+  audio.play("ready");
 }
 function fire(value: Shot) {
   if (phase === "flying" || phase === "result") return;
@@ -119,13 +125,19 @@ function finish() {
 }
 function point(event: PointerEvent) {
   const rect = canvas.getBoundingClientRect();
+  const view = pitchView(rect.width, rect.height, immersive.matches);
   return {
-    x: ((event.clientX - rect.left) / rect.width) * FIELD.width,
-    y: ((event.clientY - rect.top) / rect.height) * FIELD.height,
+    x: (event.clientX - rect.left - view.x) / view.scaleX,
+    y: (event.clientY - rect.top - view.y) / view.scaleY,
   };
 }
 function updateDrag(event: PointerEvent) {
   if (!drag || event.pointerId !== drag.id) return;
+  const bounds = canvas.getBoundingClientRect();
+  if (bounds.width !== drag.width || bounds.height !== drag.height) {
+    cancel();
+    return;
+  }
   const p = point(event);
   // Holding at the end preserves the last preview and never changes the release height.
   if (Math.hypot(p.x - drag.lastX, p.y - drag.lastY) < 1) return;
@@ -134,16 +146,18 @@ function updateDrag(event: PointerEvent) {
   preview = gesture(p.x - drag.x, p.y - drag.y, event.timeStamp - drag.time);
   readout(preview);
   element("hint").textContent = preview
-    ? "Release to shoot · Esc to cancel"
+    ? event.pointerType === "touch" ? "Release to shoot." : "Release to shoot · Esc to cancel"
     : "Drag up toward the goal.";
 }
 canvas.addEventListener("pointerdown", (event) => {
   if (event.button !== 0 || !event.isPrimary || drag || phase === "flying")
     return;
   const p = point(event);
+  const bounds = canvas.getBoundingClientRect();
+  const view = pitchView(bounds.width, bounds.height, immersive.matches);
   const radius = Math.max(
     48,
-    (28 * FIELD.width) / canvas.getBoundingClientRect().width,
+    28 / view.scaleX,
   );
   if (Math.hypot(p.x - FIELD.ballX, p.y - FIELD.ballY) > radius) return;
   if (phase === "result") reset();
@@ -157,6 +171,8 @@ canvas.addEventListener("pointerdown", (event) => {
     lastX: p.x,
     lastY: p.y,
     time: event.timeStamp,
+    width: canvas.getBoundingClientRect().width,
+    height: canvas.getBoundingClientRect().height,
   };
   phase = "aiming";
   preview = null;
@@ -178,11 +194,17 @@ canvas.addEventListener("lostpointercapture", (event) => {
 });
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());
 next.addEventListener("click", () => {
-  if (phase === "result") reset();
+  if (phase === "result") {
+    audio.unlock();
+    reset();
+  }
 });
 function toggleSound() {
   audio.muted = !audio.muted;
-  if (!audio.muted) audio.unlock();
+  if (!audio.muted) {
+    audio.unlock();
+    audio.play("ready");
+  }
   element("sound").setAttribute("aria-pressed", String(audio.muted));
   element("sound").setAttribute(
     "aria-label",
@@ -245,6 +267,7 @@ function frame(now: number) {
   const dt = Math.min(now - previousTime, 50);
   previousTime = now;
   if (!document.hidden) {
+    animationTime += dt / 1000;
     if (shot && (phase === "flying" || phase === "result")) {
       elapsed += dt;
       if (phase === "flying" && elapsed >= shot.duration) finish();
@@ -258,6 +281,7 @@ function frame(now: number) {
       result,
       ready: phase === "ready",
       reducedMotion: reducedMotion.matches,
+      time: animationTime,
     });
   }
   requestAnimationFrame(frame);

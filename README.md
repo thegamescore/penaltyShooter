@@ -1,6 +1,6 @@
-# Penalty Club
+# Penalty Club · gamesCore_
 
-A standalone football penalty game built with the workspace's TypeScript + Vite conventions. All stadium, ball and goalkeeper artwork is rendered locally with Canvas 2D; sound effects are synthesized with Web Audio. No external assets, API, account or runtime network access are required.
+A standalone football penalty game built with the workspace's TypeScript + Vite conventions. All stadium, ball and goalkeeper artwork is rendered locally with Canvas 2D; sound effects are synthesized with Web Audio. Branding follows [gamesCore_](https://thegamescore.com/), with its navy/violet palette, wordmark typography, stadium signage and goalkeeper kit. The Recoleta Alt Bold font and favicon are sourced from the company website and bundled locally; no API, account or runtime network access is required.
 
 ## Run
 
@@ -22,13 +22,15 @@ Open **http://localhost:4194**. `npm run build` creates a standalone `dist/` dir
 - The ball resets automatically 1.45 seconds after the result. Use **Next penalty** or start on the ball to reset sooner.
 - Focus the pitch for keyboard controls: Left/Right aim, Up/Down adjust height, W/S adjust power, Space shoots, Escape cancels. M or the sound button toggles audio.
 
-Practice is continuous. The scoreboard tracks goals and attempts, with the last five outcomes and the best goal streak of the current session. Sound unlocks on the first interaction; background tabs freeze the simulation and suspend audio.
+Practice is continuous. The scoreboard tracks goals and attempts, with the last five outcomes and the best goal streak of the current session. Arcade sound effects include a punchy kick, a rising goal jingle, distinct save and miss tones, and a next-penalty cue. Sound unlocks on the first interaction; muting immediately silences active effects, and background tabs freeze the simulation and suspend audio.
 
 ## Physics
 
+Every completed shot makes the keeper stronger, including goals, saves and misses. Reaction time improves from 190 ms to 100 ms; dive speed, reach and tracking also increase. The ramp caps on penalty 25 so precise, powerful corners remain scoreable during long sessions. Canceled drags do not advance difficulty, and taking the next ball does not reset it. Reloading starts a fresh session. Swipe mapping, power, elevation and preview trajectories remain consistent throughout.
+
 Gestures are measured in normalized pitch coordinates, giving the same relative swipe the same result at different screen sizes. The preview and animation share a single trajectory function. Power controls flight time, while swipe speed controls elevation. Perspective makes the ball shrink and visually slow as it approaches the goal. Very weak shots decelerate on the grass and stop short.
 
-The keeper waits 190 ms before accelerating into a dive. Available flight time bounds the keeper's reach, giving powerful corner shots an advantage. The animated arrival position is also the collision position. Saved balls rebound outward, while goals drop into the net with gravity and a damped bounce. Outcomes depend on the input and attempt number, without random rolls or aim assistance after release. This is a tuned 2.5D arcade model, not a full 3D football simulation; there is no player-controlled spin or crossbar rebound simulation.
+The keeper initially waits 190 ms before accelerating into a dive. Available flight time bounds the keeper's reach, giving powerful corner shots an advantage. The gloves lead each dive toward a shared interception point used by both the animation and save detection. The head and torso follow behind the hands, with separate low scoops and high reaches, a gravity-driven landing, and a return to the ready stance. Saved balls rebound outward, while goals drop into the net with gravity and a damped bounce. Outcomes depend on the input and attempt number, without random rolls or aim assistance after release. This is a tuned 2.5D arcade model, not a full 3D football simulation; there is no player-controlled spin or crossbar rebound simulation.
 
 ## Checks
 
@@ -48,7 +50,8 @@ Physical touchscreen devices, Safari and audio quality on real speakers have not
 - `src/physics.ts`: input mapping, shared trajectories, keeper movement, collision outcomes and rebounds.
 - `src/main.ts`: pointer/keyboard input, game lifecycle, scores and interface updates.
 - `src/art.ts`: stadium, goalkeeper, ball and preview rendering.
-- `src/audio.ts`: synthesized kick, goal, save and miss effects.
+- `src/keeper.ts`: articulated keeper poses, glove contact, dives, landings and recovery.
+- `src/audio.ts`: synthesized arcade kick, goal, save, miss and next-penalty effects.
 - `src/style.css`, `index.html`: responsive interface and accessible controls.
 - `tests/`, `playwright.config.ts`: unit and browser checks.
 

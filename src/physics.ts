@@ -62,11 +62,17 @@ export function difficulty(attempt: number) {
 
 export function keeperTarget(shot: Shot, attempt: number) {
   const skill = difficulty(attempt);
-  const anticipation = [0, -24, 26, -12, 15][attempt % 5] * skill.anticipationScale;
+  const anticipation =
+    [0, -24, 26, -12, 15][attempt % 5] * skill.anticipationScale;
   const available = Math.max(0, shot.duration / 1000 - skill.reaction);
-  const reach = Math.min(skill.maxReach, Math.max(0, available - 0.07) * skill.diveSpeed);
+  const reach = Math.min(
+    skill.maxReach,
+    Math.max(0, available - 0.07) * skill.diveSpeed,
+  );
   return {
-    x: 500 + clamp((shot.x - 500) * skill.tracking + anticipation, -reach, reach),
+    x:
+      500 +
+      clamp((shot.x - 500) * skill.tracking + anticipation, -reach, reach),
     y: clamp(shot.y, skill.highReach, skill.lowReach),
   };
 }
@@ -75,7 +81,11 @@ export function keeperPosition(shot: Shot, attempt: number, progress: number) {
   const target = keeperTarget(shot, attempt);
   const skill = difficulty(attempt);
   const available = shot.duration / 1000 - skill.reaction;
-  const time = clamp((progress * shot.duration) / 1000 - skill.reaction, 0, available);
+  const time = clamp(
+    (progress * shot.duration) / 1000 - skill.reaction,
+    0,
+    available,
+  );
   const distance = (t: number) => (t < 0.14 ? (t * t) / 0.28 : t - 0.07);
   const fraction = distance(time) / distance(available);
   return {
@@ -83,6 +93,15 @@ export function keeperPosition(shot: Shot, attempt: number, progress: number) {
     y: 287 + (target.y - 287) * fraction,
     lean: ((target.x - 500) / skill.maxReach) * fraction,
   };
+}
+
+// The reachable glove contact, shared by collision detection and the articulated rig.
+// The body trails this point during a dive; its legs never determine a save.
+export function keeperContact(shot: Shot, attempt: number) {
+  const target = keeperTarget(shot, attempt);
+  const dx = shot.x - target.x, dy = shot.y - target.y;
+  const reach = Math.max(1, Math.hypot(dx / 55, dy / 64));
+  return { x: target.x + dx / reach, y: target.y + dy / reach };
 }
 
 export function outcome(shot: Shot, attempt: number): Outcome {
@@ -94,8 +113,8 @@ export function outcome(shot: Shot, attempt: number): Outcome {
     shot.y > FIELD.ground - 9
   )
     return "miss";
-  const keeper = keeperTarget(shot, attempt);
-  return Math.hypot((shot.x - keeper.x) / 55, (shot.y - keeper.y) / 64) <= 1
+  const contact = keeperContact(shot, attempt);
+  return Math.hypot(shot.x - contact.x, shot.y - contact.y) < 0.000001
     ? "save"
     : "goal";
 }

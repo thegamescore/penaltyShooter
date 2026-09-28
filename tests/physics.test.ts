@@ -9,6 +9,7 @@ import {
   keeperTarget,
   bounceHeight,
   aftermathPosition,
+  difficulty,
 } from "../src/physics";
 
 test("tiny, horizontal, and downward gestures never shoot", () => {
@@ -36,7 +37,7 @@ test("fast swipes add lift without changing lateral direction or power", () => {
 });
 test("goals, saves, wide, high and underpowered misses are deterministic", () => {
   for (let attempt = 0; attempt < 20; attempt++) {
-    assert.equal(outcome(makeShot(710, 105, 0.9), attempt), "goal");
+    assert.equal(outcome(makeShot(737, 150, 1), attempt), "goal");
     assert.equal(outcome(makeShot(500, 80, 0.8), attempt), "save");
     assert.equal(outcome(makeShot(820, 100, 1), attempt), "miss");
     assert.equal(outcome(makeShot(650, 210, 1), attempt), "miss");
@@ -92,4 +93,62 @@ test("bounces and parries are continuous, settle and never fall through the turf
   assert.ok(aftermathPosition(shot, "save", 0.5).groundY > 351);
   for (let t = 0; t < 3; t += 0.01) assert.ok(bounceHeight(80, 55, t) >= 0);
   assert.equal(bounceHeight(80, 55, 3), 0);
+});
+
+test("difficulty ramps every shot, changes tiers every six, and caps after 24", () => {
+  for (let attempt = 1; attempt <= 24; attempt++) {
+    const before = difficulty(attempt - 1),
+      after = difficulty(attempt);
+    assert.ok(after.reaction < before.reaction);
+    assert.ok(after.diveSpeed > before.diveSpeed);
+    assert.ok(after.maxReach > before.maxReach);
+    assert.ok(after.tracking > before.tracking);
+  }
+  assert.deepEqual(
+    [0, 5, 6, 11, 12, 18, 24].map((n) => difficulty(n).level),
+    [1, 1, 2, 2, 3, 4, 5],
+  );
+  assert.deepEqual(difficulty(10000), difficulty(24));
+});
+
+test("the same ordinary corner becomes harder while precise powerful corners remain possible", () => {
+  const ordinary = makeShot(710, 105, 0.9);
+  assert.equal(outcome(ordinary, 0), "goal");
+  assert.equal(outcome(ordinary, 24), "save");
+  for (let attempt = 0; attempt <= 100; attempt++) {
+    for (const x of [263, 737])
+      assert.equal(outcome(makeShot(x, 150, 1), attempt), "goal");
+    const pose = keeperPosition(ordinary, attempt, 1),
+      target = keeperTarget(ordinary, attempt);
+    assert.equal(pose.x, target.x);
+    assert.equal(pose.y, target.y);
+    const reaction = difficulty(attempt).reaction;
+    assert.equal(
+      keeperPosition(
+        ordinary,
+        attempt,
+        ((reaction - 0.001) * 1000) / ordinary.duration,
+      ).x,
+      500,
+    );
+  }
+});
+
+test("keeper coverage increases across difficulty levels for a representative shot grid", () => {
+  let previousSaves = -1;
+  for (const attempt of [0, 6, 12, 18, 24]) {
+    let saves = 0;
+    for (let x = 270; x <= 730; x += 20) {
+      for (let height = 30; height <= 150; height += 20) {
+        for (const power of [0.4, 0.7, 1]) {
+          if (outcome(makeShot(x, height, power), attempt) === "save") saves++;
+        }
+      }
+    }
+    assert.ok(
+      saves > previousSaves,
+      `Attempt ${attempt}: ${saves} saves must exceed ${previousSaves}`,
+    );
+    previousSaves = saves;
+  }
 });

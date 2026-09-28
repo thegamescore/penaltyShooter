@@ -1,13 +1,47 @@
 import { test, expect, type Page } from "@playwright/test";
+import { immersiveQuery, pitchView } from "../../src/viewport";
 
 const state = (page: Page) => page.evaluate(() => (window as any).__penalty);
+
+test("repeated shots strengthen the keeper without changing the shot or resetting progression", async ({
+  page,
+}) => {
+  test.setTimeout(60000);
+  await page.goto("/?test");
+  await page.locator("canvas").focus();
+  for (let i = 0; i < 3; i++) {
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("w");
+  }
+  await page.keyboard.press("Escape");
+  expect((await state(page)).shots).toBe(0);
+  let firstShot;
+  for (let count = 1; count <= 25; count++) {
+    await page.locator("canvas").focus();
+    await page.keyboard.press("Space");
+    await expect(page.locator("#shots")).toHaveText(
+      String(count).padStart(2, "0"),
+    );
+    const current = await state(page);
+    if (count === 1) {
+      firstShot = current.shot;
+      expect(current.result).toBe("goal");
+    }
+    expect(current.shot).toEqual(firstShot);
+    if (count === 25) expect(current.result).toBe("save");
+    await page.locator("#next").click();
+    expect((await state(page)).shots).toBe(count);
+  }
+});
 async function coordinates(page: Page, dx = 155, dy = -210) {
   const box = (await page.locator("canvas").boundingBox())!;
+  const immersive = await page.evaluate(query => matchMedia(query).matches, immersiveQuery);
+  const view = pitchView(box.width, box.height, immersive);
   return {
-    x: box.x + box.width * 0.5,
-    y: box.y + (box.height * 601) / 720,
-    endX: box.x + (box.width * (500 + dx)) / 1000,
-    endY: box.y + (box.height * (601 + dy)) / 720,
+    x: box.x + view.x + 500 * view.scaleX,
+    y: box.y + view.y + 601 * view.scaleY,
+    endX: box.x + view.x + (500 + dx) * view.scaleX,
+    endY: box.y + view.y + (601 + dy) * view.scaleY,
   };
 }
 async function mouseShot(page: Page, dx = 155, dy = -210, release = true) {
@@ -85,11 +119,12 @@ test("tiny gestures, off-ball starts, Escape, canceled pointers and resize do no
   expect((await state(page)).phase).toBe("ready");
 });
 
-test("touch swipes aim and shoot, cancellation is harmless, viewport does not scroll", async ({
+for (const viewport of [{ width: 390, height: 844 }, { width: 820, height: 1180 }, { width: 844, height: 390 }, { width: 1180, height: 820 }]) {
+test(`touch swipes aim and shoot at ${viewport.width}×${viewport.height}, cancellation is harmless, viewport does not scroll`, async ({
   browser,
 }) => {
   const context = await browser.newContext({
-    viewport: { width: 390, height: 844 },
+    viewport,
     isMobile: true,
     hasTouch: true,
     deviceScaleFactor: 2,
@@ -117,7 +152,7 @@ test("touch swipes aim and shoot, cancellation is harmless, viewport does not sc
   await page.waitForTimeout(60);
   const preview = (await state(page)).preview;
   expect(preview.x).toBeLessThan(320);
-  await page.screenshot({ path: "test-results/mobile-aim.png" });
+  await page.screenshot({ path: `test-results/touch-aim-${viewport.width}.png` });
   await cdp.send("Input.dispatchTouchEvent", {
     type: "touchEnd",
     touchPoints: [],
@@ -142,11 +177,12 @@ test("touch swipes aim and shoot, cancellation is harmless, viewport does not sc
   expect((await state(page)).phase).toBe("ready");
   expect((await state(page)).shots).toBe(1);
   await page.screenshot({
-    path: "test-results/mobile-ready.png",
+    path: `test-results/touch-ready-${viewport.width}.png`,
     fullPage: true,
   });
   await context.close();
 });
+}
 
 test("keyboard controls and mute are operable", async ({ page }) => {
   await page.goto("/?test");
@@ -168,7 +204,12 @@ test("keyboard controls and mute are operable", async ({ page }) => {
 });
 
 for (const size of [
+  { width: 320, height: 568 },
   { width: 360, height: 640 },
+  { width: 390, height: 844 },
+  { width: 768, height: 1024 },
+  { width: 820, height: 1180 },
+  { width: 568, height: 320 },
   { width: 844, height: 390 },
   { width: 1024, height: 768 },
 ]) {
@@ -181,9 +222,25 @@ for (const size of [
       ),
     ).toBe(true);
     await expect(page.locator("canvas")).toBeVisible();
+    const shell = (await page.locator('.game-shell').boundingBox())!;
+    expect(shell.x).toBe(0);
+    expect(shell.y).toBe(0);
+    expect(shell.width).toBe(size.width);
+    expect(shell.height).toBe(size.height);
+    const controls = (await page.locator('.controls').boundingBox())!;
+    expect(controls.y + controls.height).toBeLessThanOrEqual(size.height);
+    const sound = (await page.locator('#sound').boundingBox())!;
+    expect(sound.width).toBeGreaterThanOrEqual(44);
+    expect(sound.height).toBeGreaterThanOrEqual(44);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBe(size.height);
     await page.screenshot({
       path: `test-results/layout-${size.width}.png`,
       fullPage: true,
     });
+    await page.locator('.help summary').click();
+    const help = (await page.locator('.help > div').boundingBox())!;
+    expect(help.x).toBeGreaterThanOrEqual(0);
+    expect(help.x + help.width).toBeLessThanOrEqual(size.width);
+    expect(help.y + help.height).toBeLessThanOrEqual(size.height);
   });
 }
