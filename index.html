@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f7f8f5" />
+    <meta name="description" content="A simple penalty shootout. Drag the ball, pick a corner, and release." />
+    <title>Penalty Club</title>
+  </head>
+  <body>
+    <main class="page">
+      <header class="masthead">
+        <h1>Penalty club<span>.</span></h1>
+        <button id="sound" class="sound" aria-pressed="false" aria-label="Mute sound" title="Toggle sound (M)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4Z"/><path class="sound-waves" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/><path class="sound-muted" d="m16 9 6 6m0-6-6 6"/></svg>
+        </button>
+      </header>
+      <section class="game-shell" aria-label="Penalty shootout game">
+        <div class="pitch-wrap">
+          <div class="match-bar">
+            <div class="score" aria-label="Score"><span><b id="goals">00</b> Goals</span><span><b id="shots">00</b> Shots</span></div>
+            <div id="history" role="img" aria-label="No shots yet"><i></i><i></i><i></i><i></i><i></i></div>
+          </div>
+          <canvas id="pitch" width="1000" height="720" tabindex="0" aria-label="Football pitch. Drag from the ball toward the goal and release to shoot. Keyboard: arrows aim, W and S adjust power, Space shoots."></canvas>
+          <div id="announcement" class="announcement" aria-live="polite" aria-atomic="true"><strong id="result-title"></strong></div>
+        </div>
+        <div class="controls">
+          <p id="hint" class="hint">Drag the ball. Release to shoot.</p>
+          <div class="readout"><label for="power">Power</label><meter id="power" min="0" max="1" value="0"></meter><span id="power-value">—</span></div>
+          <button id="next" class="next" disabled>Next shot <span aria-hidden="true">↗</span></button>
+        </div>
+      </section>
+      <details class="help"><summary>How to play <span aria-hidden="true">+</span></summary><div><p>Drag from the ball toward a corner. Longer drags add power; faster swipes add height.</p><p><strong>Keyboard</strong> · Focus the pitch, then use ← → to aim, ↑ ↓ for height, W / S for power, and Space to shoot. Esc cancels. M toggles sound.</p></div></details>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
