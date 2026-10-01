@@ -1,4 +1,4 @@
-import { clamp, difficulty, keeperPosition, keeperTarget, keeperContact, type Shot } from "./physics";
+import { clamp, REACTION, keeperPosition, keeperTarget, keeperContact, type Strike } from "./physics";
 
 type Point = [number, number];
 export type KeeperPose = {
@@ -40,11 +40,11 @@ function readyPose(time: number, reducedMotion: boolean): KeeperPose {
 }
 
 // Gloves lead toward the shared collision point; the torso and boots follow behind.
-export function keeperPose(shot: Shot | null, attempt: number, progress: number, time: number, reducedMotion = false): KeeperPose {
+export function keeperPose(shot: Strike | null, progress: number, time: number, reducedMotion = false): KeeperPose {
   if (!shot) return readyPose(time, reducedMotion);
   const seconds = Math.max(0, progress * shot.duration / 1000);
   const duration = shot.duration / 1000;
-  const reaction = difficulty(attempt).reaction;
+  const reaction = REACTION;
   const rest = readyPose(0, true);
   const crouch: KeeperPose = {
     ...rest, y: 294,
@@ -55,13 +55,13 @@ export function keeperPose(shot: Shot | null, attempt: number, progress: number,
   };
   // Compress against planted feet before committing to either side.
   if (seconds < reaction) return blendKeeper(rest, crouch, smooth(seconds / reaction));
-  const target = keeperTarget(shot, attempt);
+  const target = keeperTarget(shot);
   const direction = target.x < 500 ? -1 : 1;
   const lateral = smooth(Math.abs(target.x - 500) / 100);
   const extension = smooth((seconds - reaction) / Math.min(0.24, duration - reaction));
   const travel = clamp((seconds - reaction) / (duration - reaction), 0, 1);
-  const anchor = keeperPosition(shot, attempt, Math.min(progress, 1));
-  const contact = keeperContact(shot, attempt);
+  const anchor = keeperPosition(shot, Math.min(progress, 1));
+  const contact = keeperContact(shot);
   const high = clamp((287 - target.y) / 55, 0, 1);
   const bodyX = contact.x - direction * 62 * lateral;
   const bodyY = mix(Math.min(contact.y + 62, 310), Math.min(contact.y + 25, 305), lateral);

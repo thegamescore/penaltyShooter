@@ -2,207 +2,114 @@ import { test, expect, type Page } from "@playwright/test";
 import { immersiveQuery, pitchView } from "../../src/viewport";
 
 const state = (page: Page) => page.evaluate(() => (window as any).__penalty);
-
-test("repeated shots strengthen the keeper without changing the shot or resetting progression", async ({
-  page,
-}) => {
-  test.setTimeout(60000);
-  await page.goto("/?test");
-  await page.locator("canvas").focus();
-  for (let i = 0; i < 3; i++) {
-    await page.keyboard.press("ArrowRight");
-    await page.keyboard.press("w");
-  }
-  await page.keyboard.press("Escape");
-  expect((await state(page)).shots).toBe(0);
-  let firstShot;
-  for (let count = 1; count <= 25; count++) {
-    await page.locator("canvas").focus();
-    await page.keyboard.press("Space");
-    await expect(page.locator("#shots")).toHaveText(
-      String(count).padStart(2, "0"),
-    );
-    const current = await state(page);
-    if (count === 1) {
-      firstShot = current.shot;
-      expect(current.result).toBe("goal");
-    }
-    expect(current.shot).toEqual(firstShot);
-    if (count === 25) expect(current.result).toBe("save");
-    await page.locator("#next").click();
-    expect((await state(page)).shots).toBe(count);
-  }
-});
-async function coordinates(page: Page, dx = 155, dy = -210) {
-  const box = (await page.locator("canvas").boundingBox())!;
+async function coordinates(page: Page, x = 710, y = 246) {
+  const box = (await page.locator("#pitch").boundingBox())!;
   const immersive = await page.evaluate(query => matchMedia(query).matches, immersiveQuery);
   const view = pitchView(box.width, box.height, immersive);
-  return {
-    x: box.x + view.x + 500 * view.scaleX,
-    y: box.y + view.y + 601 * view.scaleY,
-    endX: box.x + view.x + (500 + dx) * view.scaleX,
-    endY: box.y + view.y + (601 + dy) * view.scaleY,
-  };
+  return { x: box.x + view.x + x * view.scaleX, y: box.y + view.y + y * view.scaleY };
 }
-async function mouseShot(page: Page, dx = 155, dy = -210, release = true) {
-  const p = await coordinates(page, dx, dy);
-  await page.mouse.move(p.x, p.y);
-  await page.mouse.down();
-  for (let i = 1; i <= 8; i++) {
-    await page.waitForTimeout(45);
-    await page.mouse.move(
-      p.x + ((p.endX - p.x) * i) / 8,
-      p.y + ((p.endY - p.y) * i) / 8,
-    );
-  }
-  const preview = (await state(page)).preview;
-  if (release) await page.mouse.up();
-  return preview;
+async function ready(page: Page) {
+  await expect.poll(async () => (await state(page)).phase).toBe("ready");
 }
 
-test("mouse aiming preview, frozen hold, goal, next shot, save, miss and auto reset", async ({
-  page,
-}) => {
+test("one click shoots at the previewed spot and automatically readies the next ball", async ({ page }) => {
   const errors: string[] = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", e => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 1080 });
-  await page.goto("/?test");
-  const preview = await mouseShot(page, 155, -210, false);
-  expect(preview.x).toBeGreaterThan(680);
+  await page.goto("/?test&roll=0,0.999");
+  await page.getByRole("button", { name: "Start game", exact: true }).click();
+  await expect(page.locator("#goal-prompt")).toHaveText("Click the goal to shoot ↓");
+  await page.screenshot({ path: "test-results/desktop-ready.png", fullPage: true });
+  const p = await coordinates(page);
+  await page.mouse.move(p.x, p.y);
+  const preview = (await state(page)).preview;
+  expect(preview.x).toBeCloseTo(710);
+  expect(preview.y).toBeCloseTo(246);
   await page.screenshot({ path: "test-results/desktop-aim.png" });
-  await page.waitForTimeout(400);
-  expect((await state(page)).preview).toEqual(preview);
-  await page.mouse.up();
-  expect((await state(page)).shot).toEqual(preview);
+  await page.mouse.click(p.x, p.y);
+  expect((await state(page)).shot).toMatchObject(preview);
+  await expect(page.locator("#goal-prompt")).toBeHidden();
+  // Extra clicks while the ball is in flight must not create another shot.
+  await page.mouse.click(p.x, p.y);
   await expect(page.locator("#shots")).toHaveText("01");
   expect((await state(page)).result).toBe("goal");
-  await page.screenshot({
-    path: "test-results/desktop-goal.png",
-    fullPage: true,
-  });
-  await page.locator("#next").click();
-  await mouseShot(page, 0, -210);
+  await page.screenshot({ path: "test-results/desktop-goal.png", fullPage: true });
+  await ready(page);
+  await expect(page.locator("#goal-prompt")).toBeVisible();
+  const center = await coordinates(page, 500, 270);
+  await page.mouse.click(center.x, center.y);
   await expect(page.locator("#shots")).toHaveText("02");
   expect((await state(page)).result).toBe("save");
-  await page.locator("#next").click();
-  await mouseShot(page, 270, -170);
-  await expect(page.locator("#shots")).toHaveText("03");
-  expect((await state(page)).result).toBe("miss");
-  await expect.poll(async () => (await state(page)).phase).toBe("ready");
   expect((await state(page)).goals).toBe(1);
   expect(errors).toEqual([]);
 });
 
-test("tiny gestures, off-ball starts, Escape, canceled pointers and resize do not shoot", async ({
-  page,
-}) => {
-  await page.goto("/?test");
-  await mouseShot(page, 4, -4);
-  expect((await state(page)).shots).toBe(0);
+test("outside taps, Escape, pointer cancellation and resize never shoot", async ({ page }) => {
+  await page.goto("/?test&roll=0");
+  await page.getByRole("button", { name: "Start game", exact: true }).click();
+  const outside = await coordinates(page, 500, 601);
+  await page.mouse.click(outside.x, outside.y);
+  expect((await state(page)).phase).toBe("ready");
   const p = await coordinates(page);
-  await page.mouse.move(p.x - 170, p.y);
-  await page.mouse.down();
-  await page.mouse.move(p.x, p.y - 150);
-  await page.mouse.up();
-  expect((await state(page)).phase).toBe("ready");
-  await mouseShot(page, 155, -210, false);
-  await page.keyboard.press("Escape");
-  await page.mouse.up();
-  expect((await state(page)).phase).toBe("ready");
-  await mouseShot(page, 155, -210, false);
-  await page.locator("canvas").dispatchEvent("pointercancel", { pointerId: 1 });
-  await page.mouse.up();
-  expect((await state(page)).shots).toBe(0);
-  await mouseShot(page, 155, -210, false);
-  await page.setViewportSize({ width: 900, height: 700 });
-  await page.mouse.up();
-  expect((await state(page)).phase).toBe("ready");
+  for (const cancel of ["escape", "pointer", "outside", "resize"]) {
+    await page.mouse.move(p.x, p.y);
+    await page.mouse.down();
+    if (cancel === "escape") await page.keyboard.press("Escape");
+    if (cancel === "pointer") await page.locator("#pitch").dispatchEvent("pointercancel", { pointerId: 1 });
+    if (cancel === "outside") await page.mouse.move(outside.x, outside.y);
+    if (cancel === "resize") await page.setViewportSize({ width: 900, height: 700 });
+    await page.mouse.up();
+    expect((await state(page)).phase).toBe("ready");
+    expect((await state(page)).shots).toBe(0);
+  }
 });
 
 for (const viewport of [{ width: 390, height: 844 }, { width: 820, height: 1180 }, { width: 844, height: 390 }, { width: 1180, height: 820 }]) {
-test(`touch swipes aim and shoot at ${viewport.width}×${viewport.height}, cancellation is harmless, viewport does not scroll`, async ({
-  browser,
-}, testInfo) => {
-  const context = await browser.newContext({
-    viewport,
-    isMobile: true,
-    hasTouch: true,
-    deviceScaleFactor: 2,
+  test(`one touch shoots at ${viewport.width}×${viewport.height}, canceled touches do not shoot`, async ({ browser }, testInfo) => {
+    const context = await browser.newContext({ viewport, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
+    const page = await context.newPage();
+    await page.goto("/?test&roll=0");
+    await page.getByRole("button", { name: "Start game", exact: true }).click();
+    await expect(page.locator("#goal-prompt")).toHaveText("Tap the goal to shoot ↓");
+    const p = await coordinates(page, 290, 215);
+    await page.screenshot({ path: testInfo.outputPath("ready.png"), fullPage: true });
+    await page.touchscreen.tap(p.x, p.y);
+    const shot = (await state(page)).shot;
+    expect(shot.x).toBeCloseTo(290, 0);
+    expect(shot.y).toBeCloseTo(215, 0);
+    await expect(page.locator("#shots")).toHaveText("01");
+    expect((await state(page)).result).toBe("goal");
+    await ready(page);
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [p] });
+    await cdp.send("Input.dispatchTouchEvent", { type: "touchCancel", touchPoints: [] });
+    expect((await state(page)).phase).toBe("ready");
+    expect((await state(page)).shots).toBe(1);
+    expect(await page.evaluate(() => scrollY)).toBe(0);
+    await context.close();
   });
-  const page = await context.newPage();
-  await page.goto("/?test");
-  const shell = (await page.locator('.game-shell').boundingBox())!;
-  expect(shell).toEqual({ x: 0, y: 0, width: viewport.width, height: viewport.height });
-  const cdp = await context.newCDPSession(page);
-  const p = await coordinates(page, -155, -210);
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: [{ x: p.x, y: p.y }],
-  });
-  for (let i = 1; i <= 8; i++) {
-    await page.waitForTimeout(45);
-    await cdp.send("Input.dispatchTouchEvent", {
-      type: "touchMove",
-      touchPoints: [
-        {
-          x: p.x + ((p.endX - p.x) * i) / 8,
-          y: p.y + ((p.endY - p.y) * i) / 8,
-        },
-      ],
-    });
-  }
-  await page.waitForTimeout(60);
-  const preview = (await state(page)).preview;
-  expect(preview.x).toBeLessThan(320);
-  await page.screenshot({ path: testInfo.outputPath("aim.png") });
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchEnd",
-    touchPoints: [],
-  });
-  expect((await state(page)).shot).toEqual(preview);
-  await expect(page.locator("#shots")).toHaveText("01");
-  expect((await state(page)).result).toBe("goal");
-  expect(await page.evaluate(() => scrollY)).toBe(0);
-  await page.locator("#next").click();
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchStart",
-    touchPoints: [{ x: p.x, y: p.y }],
-  });
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchMove",
-    touchPoints: [{ x: p.endX, y: p.endY }],
-  });
-  await cdp.send("Input.dispatchTouchEvent", {
-    type: "touchCancel",
-    touchPoints: [],
-  });
-  expect((await state(page)).phase).toBe("ready");
-  expect((await state(page)).shots).toBe(1);
-  await page.screenshot({
-    path: testInfo.outputPath("ready.png"),
-    fullPage: true,
-  });
-  await context.close();
-});
 }
 
-test("keyboard controls and mute are operable", async ({ page }) => {
-  await page.goto("/?test");
-  await page.locator("canvas").focus();
-  await page.keyboard.press("ArrowRight");
+test("keyboard uses only arrows and shoot; aiming remains inside the goal", async ({ page }) => {
+  await page.goto("/?test&roll=0");
+  await page.getByRole("button", { name: "Start game", exact: true }).click();
+  await page.locator("#pitch").focus();
+  await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("w");
-  expect((await state(page)).preview.x).toBe(670);
+  expect((await state(page)).preview.x).toBe(690);
+  expect((await state(page)).preview.y).toBe(234);
+  expect((await state(page)).preview.power).toBe(0.9);
   await page.keyboard.press("m");
   expect((await state(page)).muted).toBe(true);
-  await expect(page.locator("#sound")).toHaveAttribute(
-    "aria-label",
-    "Unmute sound",
-  );
-  await page.keyboard.press("Space");
+  await page.keyboard.press("Enter");
   await expect(page.locator("#shots")).toHaveText("01");
-  await page.locator("#sound").click();
-  expect((await state(page)).muted).toBe(false);
+  await ready(page);
+  await page.locator("#pitch").focus();
+  for (let i = 0; i < 30; i++) await page.keyboard.press("ArrowRight");
+  expect((await state(page)).preview.x).toBe(738);
+  await page.keyboard.press("Space");
+  await expect(page.locator("#shots")).toHaveText("02");
+  expect((await state(page)).result).toBe("goal");
 });
 
 for (const size of [
@@ -217,13 +124,19 @@ for (const size of [
 ]) {
   test(`layout fits ${size.width}×${size.height}`, async ({ page }) => {
     await page.setViewportSize(size);
-    await page.goto("/?test");
+    await page.goto("/?test&roll=0");
+    await page.getByRole("button", { name: "Start game", exact: true }).click();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= innerWidth,
       ),
     ).toBe(true);
-    await expect(page.locator("canvas")).toBeVisible();
+    await expect(page.locator("#pitch")).toBeVisible();
+    const pitch = (await page.locator("#pitch").boundingBox())!;
+    const prompt = (await page.locator("#goal-prompt").boundingBox())!;
+    expect(prompt.y).toBeGreaterThanOrEqual(pitch.y);
+    expect(prompt.x).toBeGreaterThanOrEqual(0);
+    expect(prompt.x + prompt.width).toBeLessThanOrEqual(size.width);
     const shell = (await page.locator('.game-shell').boundingBox())!;
     expect(shell.x).toBe(0);
     expect(shell.y).toBe(0);

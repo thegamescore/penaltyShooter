@@ -4,10 +4,12 @@ import { MatchAudio } from "./audio";
 import { immersiveQuery, pitchView } from "./viewport";
 import {
   FIELD,
-  gesture,
-  makeShot,
+  aimShot,
   outcome,
+  strike,
+  difficulty,
   type Shot,
+  type Strike,
   type Outcome,
 } from "./physics";
 
@@ -15,14 +17,29 @@ const element = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const canvas = element<HTMLCanvasElement>("pitch");
 const renderer = new Renderer(canvas);
+const startRenderer = new Renderer(element<HTMLCanvasElement>("start-background"));
+let started = false;
 const audio = new MatchAudio();
 const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
 const immersive = matchMedia(immersiveQuery);
-const next = element<HTMLButtonElement>("next");
+const prompt = element("goal-prompt");
+const touchInput = matchMedia("(hover: none) and (pointer: coarse)");
+function updatePromptText() {
+  prompt.firstChild!.textContent = touchInput.matches ? "Tap the goal to shoot " : "Click the goal to shoot ";
+  element("start-shot-guide").textContent = touchInput.matches
+    ? "Tap the goal to shoot."
+    : "Aim with the mouse. Click to shoot.";
+}
+updatePromptText();
+touchInput.addEventListener("change", updatePromptText);
+const readyHint = "Aim for a corner. Beat the keeper.";
 const history: Outcome[] = [];
+const params = new URLSearchParams(location.search);
+// Test mode only: ?roll=0,0.99 fixes keeper rolls, cycled per shot. Low roll scores, high roll saved.
+const fixedRolls = params.has("test") ? (params.get("roll") ?? "").split(",").filter(Boolean).map(Number) : [];
 let phase: "ready" | "aiming" | "flying" | "result" = "ready";
 let preview: Shot | null = null,
-  shot: Shot | null = null,
+  shot: Strike | null = null,
   result: Outcome | null = null;
 let goals = 0,
   shots = 0,
@@ -30,40 +47,34 @@ let goals = 0,
   best = 0,
   elapsed = 0,
   attempt = 0;
-let drag: {
-  id: number;
-  x: number;
-  y: number;
-  time: number;
-  lastX: number;
-  lastY: number;
-  width: number;
-  height: number;
-} | null = null;
-let keyboard = { x: 650, height: 105, power: 0.75 };
+let pointer: { id: number; width: number; height: number } | null = null;
+let keyboard = { x: 710, y: 246 };
 let previousTime = performance.now();
 let animationTime = 0;
-let swipeGuideDismissed = false;
 
-function readout(value: Shot | null) {
-  element<HTMLMeterElement>("power").value = value?.power ?? 0;
-  element("power-value").textContent = value
-    ? `${Math.round(value.power * 100)}%`
-    : "—";
+element("start-game").addEventListener("click", () => {
+  if (started) return;
+  started = true;
+  element("start-screen").hidden = true;
+  element("game").hidden = false;
+  element("game").inert = false;
+  audio.unlock();
+  positionPrompt();
+  canvas.focus({ preventScroll: true });
+});
 
-}
 function releaseCapture() {
-  if (drag && canvas.hasPointerCapture(drag.id))
-    canvas.releasePointerCapture(drag.id);
-  drag = null;
+  const active = pointer;
+  pointer = null;
+  if (active && canvas.hasPointerCapture(active.id))
+    canvas.releasePointerCapture(active.id);
 }
 function cancel() {
   releaseCapture();
   if (phase === "aiming") {
     phase = "ready";
     preview = null;
-    readout(null);
-    element("hint").textContent = "Drag the ball. Release to shoot.";
+    element("hint").textContent = readyHint;
   }
 }
 function reset() {
@@ -74,24 +85,24 @@ function reset() {
   result = null;
   elapsed = 0;
   element("announcement").classList.remove("visible");
-  next.disabled = true;
-  element("hint").textContent = "Drag the ball. Release to shoot.";
-  readout(null);
+  prompt.hidden = false;
+  element("hint").textContent = readyHint;
   audio.play("ready");
 }
 function fire(value: Shot) {
-  if (phase === "flying" || phase === "result") return;
+  if (!started || phase === "flying" || phase === "result") return;
   releaseCapture();
   audio.unlock();
   audio.play("kick");
-  shot = value;
-  preview = null;
   attempt = shots;
+  const struck = strike(value, attempt, fixedRolls.length ? fixedRolls[attempt % fixedRolls.length] : Math.random());
+  shot = struck;
+  preview = null;
   phase = "flying";
   elapsed = 0;
-  result = outcome(value, attempt);
-  readout(value);
-  next.disabled = true;
+  result = outcome(struck);
+  prompt.hidden = true;
+  canvas.style.cursor = "default";
   element("hint").textContent = "Eyes on the ball.";
 }
 function finish() {
@@ -118,10 +129,11 @@ function finish() {
     "aria-label",
     `Last shots: ${history.slice(-5).join(", ")}`,
   );
-  element("result-title").textContent = result === "goal" ? "Goal." : result === "save" ? "Saved." : shot?.short ? "Too short." : "Off target.";
+  element("result-title").textContent = result === "goal" ? "Goal." : result === "save" ? "Saved." : shot?.short ? "Too short." : shot?.frame ? "Off the post." : "Off target.";
   element("announcement").classList.add("visible");
-  next.disabled = false;
-  element("hint").textContent = result === "goal" ? "Nice finish." : result === "save" ? "Try aiming for a corner." : shot?.short ? "Drag further for more power." : shot && shot.y < FIELD.top + 9 ? "Swipe slower for less height." : "Aim inside the posts.";
+  element("hint").textContent = result === "goal"
+    ? "Nice shot! Next ball…"
+    : "Try a corner! Next ball…";
   audio.play(result);
 }
 function point(event: PointerEvent) {
@@ -132,75 +144,60 @@ function point(event: PointerEvent) {
     y: (event.clientY - rect.top - view.y) / view.scaleY,
   };
 }
-function updateDrag(event: PointerEvent) {
-  if (!drag || event.pointerId !== drag.id) return;
+function updateAim(event: PointerEvent) {
+  if (!started || phase === "flying" || phase === "result") return;
+  if (pointer && event.pointerId !== pointer.id) return;
   const bounds = canvas.getBoundingClientRect();
-  if (bounds.width !== drag.width || bounds.height !== drag.height) {
+  if (pointer && (bounds.width !== pointer.width || bounds.height !== pointer.height)) {
     cancel();
     return;
   }
   const p = point(event);
-  // Holding at the end preserves the last preview and never changes the release height.
-  if (Math.hypot(p.x - drag.lastX, p.y - drag.lastY) < 1) return;
-  drag.lastX = p.x;
-  drag.lastY = p.y;
-  preview = gesture(p.x - drag.x, p.y - drag.y, event.timeStamp - drag.time);
-  readout(preview);
-  element("hint").textContent = preview
-    ? event.pointerType === "touch" ? "Release to shoot." : "Release to shoot · Esc to cancel"
-    : "Drag up toward the goal.";
+  preview = aimShot(p.x, p.y);
+  phase = preview ? "aiming" : "ready";
+  canvas.style.cursor = preview ? "crosshair" : "default";
 }
 canvas.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0 || !event.isPrimary || drag || phase === "flying")
-    return;
-  const p = point(event);
-  const bounds = canvas.getBoundingClientRect();
-  const view = pitchView(bounds.width, bounds.height, immersive.matches);
-  const radius = Math.max(
-    48,
-    28 / view.scaleX,
-  );
-  if (Math.hypot(p.x - FIELD.ballX, p.y - FIELD.ballY) > radius) return;
-  if (phase === "result") reset();
-  swipeGuideDismissed = true;
+  if (event.button !== 0 || !event.isPrimary || pointer || phase === "flying" || phase === "result") return;
+  updateAim(event);
+  if (!preview) return;
   event.preventDefault();
   canvas.focus({ preventScroll: true });
   audio.unlock();
-  drag = {
-    id: event.pointerId,
-    x: p.x,
-    y: p.y,
-    lastX: p.x,
-    lastY: p.y,
-    time: event.timeStamp,
-    width: canvas.getBoundingClientRect().width,
-    height: canvas.getBoundingClientRect().height,
-  };
-  phase = "aiming";
-  preview = null;
+  const bounds = canvas.getBoundingClientRect();
+  pointer = { id: event.pointerId, width: bounds.width, height: bounds.height };
   canvas.setPointerCapture(event.pointerId);
 });
-canvas.addEventListener("pointermove", updateDrag);
+canvas.addEventListener("pointermove", updateAim);
 canvas.addEventListener("pointerup", (event) => {
-  if (!drag || event.pointerId !== drag.id) return;
-  updateDrag(event);
+  if (event.pointerId !== pointer?.id) return;
+  updateAim(event);
+  // A canceled/resized interaction must never fire a later release.
+  if (!pointer) return;
   const value = preview;
   if (value) fire(value);
   else cancel();
 });
+canvas.addEventListener("pointerleave", () => {
+  if (!pointer) cancel();
+});
 canvas.addEventListener("pointercancel", (event) => {
-  if (event.pointerId === drag?.id) cancel();
+  if (event.pointerId === pointer?.id) cancel();
 });
 canvas.addEventListener("lostpointercapture", (event) => {
-  if (event.pointerId === drag?.id) cancel();
+  if (event.pointerId === pointer?.id) cancel();
 });
 canvas.addEventListener("contextmenu", (event) => event.preventDefault());
-next.addEventListener("click", () => {
-  if (phase === "result") {
-    audio.unlock();
-    reset();
-  }
-});
+
+function positionPrompt() {
+  const bounds = canvas.getBoundingClientRect();
+  const view = pitchView(bounds.width, bounds.height, immersive.matches);
+  prompt.style.left = `${view.x + 500 * view.scaleX}px`;
+  prompt.style.top = `${view.y + (FIELD.top - 24) * view.scaleY}px`;
+}
+new ResizeObserver(positionPrompt).observe(canvas);
+immersive.addEventListener("change", () => { cancel(); positionPrompt(); });
+
 function toggleSound() {
   audio.muted = !audio.muted;
   if (!audio.muted) {
@@ -215,46 +212,26 @@ function toggleSound() {
 }
 element("sound").addEventListener("click", toggleSound);
 window.addEventListener("keydown", (event) => {
+  if (!started) return;
   if (event.key.toLowerCase() === "m" && !event.repeat) toggleSound();
   if (event.key === "Escape") cancel();
 });
 canvas.addEventListener("keydown", (event) => {
-  if (
-    ![
-      "ArrowLeft",
-      "ArrowRight",
-      "ArrowUp",
-      "ArrowDown",
-      "w",
-      "W",
-      "s",
-      "S",
-      " ",
-    ].includes(event.key)
-  )
-    return;
+  if (!started) return;
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " ", "Enter"].includes(event.key)) return;
   event.preventDefault();
-  if (phase === "flying" || drag) return;
-  if (phase === "result") {
-    if (event.key === " " && !event.repeat) reset();
-    return;
-  }
+  if (phase === "flying" || phase === "result" || pointer) return;
+  const shoot = event.key === " " || event.key === "Enter";
+  if (shoot && event.repeat) return;
   audio.unlock();
-  swipeGuideDismissed = true;
-  if (event.key === "ArrowLeft") keyboard.x = Math.max(100, keyboard.x - 20);
-  if (event.key === "ArrowRight") keyboard.x = Math.min(900, keyboard.x + 20);
-  if (event.key === "ArrowUp")
-    keyboard.height = Math.min(250, keyboard.height + 12);
-  if (event.key === "ArrowDown")
-    keyboard.height = Math.max(20, keyboard.height - 12);
-  if (event.key.toLowerCase() === "w")
-    keyboard.power = Math.min(1, keyboard.power + 0.05);
-  if (event.key.toLowerCase() === "s")
-    keyboard.power = Math.max(0.1, keyboard.power - 0.05);
-  preview = makeShot(keyboard.x, keyboard.height, keyboard.power);
+  if (event.key === "ArrowLeft") keyboard.x = Math.max(FIELD.left + 14, keyboard.x - 20);
+  if (event.key === "ArrowRight") keyboard.x = Math.min(FIELD.right - 14, keyboard.x + 20);
+  if (event.key === "ArrowUp") keyboard.y = Math.max(FIELD.top + 14, keyboard.y - 12);
+  if (event.key === "ArrowDown") keyboard.y = Math.min(FIELD.ground - 18, keyboard.y + 12);
+  preview = aimShot(keyboard.x, keyboard.y);
   phase = "aiming";
-  readout(preview);
-  if (event.key === " " && !event.repeat) fire(preview);
+  element("hint").textContent = "Arrows to aim. Space or Enter to shoot.";
+  if (shoot && preview) fire(preview);
 });
 window.addEventListener("blur", cancel);
 window.addEventListener("resize", cancel);
@@ -276,14 +253,12 @@ function frame(now: number) {
       if (phase === "flying" && elapsed >= shot.duration) finish();
       if (phase === "result" && elapsed >= shot.duration + 1450) reset();
     }
-    renderer.draw({
+    (started ? renderer : startRenderer).draw({
       preview,
       shot,
       progress: shot ? elapsed / shot.duration : 0,
-      attempt,
       result,
-      ready: phase === "ready",
-      swipeGuide: !swipeGuideDismissed && animationTime < 3.6,
+      ready: phase === "ready" || phase === "aiming",
       reducedMotion: reducedMotion.matches,
       time: animationTime,
     });
@@ -293,7 +268,7 @@ function frame(now: number) {
 requestAnimationFrame(frame);
 
 // Read-only acceptance-test snapshot, available only with an explicit test query.
-if (new URLSearchParams(location.search).has("test")) {
+if (params.has("test")) {
   Object.defineProperty(window, "__penalty", {
     get: () => ({
       phase,
@@ -304,6 +279,7 @@ if (new URLSearchParams(location.search).has("test")) {
       shots,
       streak,
       best,
+      level: difficulty(shots).level,
       muted: audio.muted,
     }),
   });

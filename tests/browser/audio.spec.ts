@@ -16,7 +16,8 @@ test("first keyboard shot plays audio; mute silences active and future effects",
     };
   });
   await page.goto("/?test");
-  await page.locator("canvas").focus();
+  await page.getByRole("button", { name: "Start game", exact: true }).click();
+  await page.locator("#pitch").focus();
   await page.keyboard.press("Space");
   await expect.poll(() => page.evaluate(() => (window as any).__audioMetrics.started)).toBeGreaterThan(0);
   await page.keyboard.press("m");
@@ -43,7 +44,8 @@ test("game remains playable when Web Audio is unavailable", async ({ page }) => 
     Object.defineProperty(window, "AudioContext", { value: undefined });
   });
   await page.goto("/?test");
-  await page.locator("canvas").focus();
+  await page.getByRole("button", { name: "Start game", exact: true }).click();
+  await page.locator("#pitch").focus();
   await page.keyboard.press("Space");
   await expect(page.locator("#shots")).toHaveText("01");
   expect(errors).toEqual([]);

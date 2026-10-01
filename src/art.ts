@@ -3,6 +3,7 @@ import {
   aftermathPosition,
   ballPosition,
   type Shot,
+  type Strike,
   type Outcome,
 } from "./physics";
 
@@ -67,11 +68,14 @@ function stadium(c: CanvasRenderingContext2D) {
     for (let i = 0; i < 7; i++) { rect(x - 36 + i * 12, 76, 8, 8, '#fff0c8'); rect(x - 36 + i * 12, 88, 8, 8, '#f8d997'); }
   }
   // Club flags and contrasting advertising hoardings.
-  for (const x of [34, 186, 816, 970]) { rect(x, 157, 4, 47, '#e5baa8'); rect(x + 4, 157, 24, 16, x < 500 ? '#8b5cf6' : '#22d3ee'); rect(x + 20, 173, 8, 4, '#b06e89'); }
+  for (const x of [34, 186, 816, 970]) { rect(x, 157, 4, 47, '#e5baa8'); rect(x + 4, 157, 24, 16, x < 500 ? '#d71920' : '#ffffff'); rect(x + 20, 173, 8, 4, '#b06e89'); }
   rect(0, 302, W, 34, '#e4c2ac');
-  ['#4c1d95', '#22d3ee', '#8b5cf6', '#0f172a'].forEach((color, i) => rect(i * 250 + 2, 304, 246, 28, color));
-  c.font = '10px Pixel, monospace'; c.textAlign = 'center';
-  for (const [x, text, color] of [[125, 'gamesCore_', '#ffffff'], [375, 'LEVEL UP', '#0f172a'], [625, 'MAKE IT COUNT', '#ffffff'], [875, 'gamesCore_', '#c4b5fd']] as const) { c.fillStyle = color; c.fillText(text, x, 324); }
+  ['#d71920', '#ffffff', '#d71920', '#242427'].forEach((color, i) => rect(i * 250 + 2, 304, 246, 28, color));
+  c.textAlign = 'center';
+  for (const [x, text, color] of [[125, 'gamesCore_', '#ffffff'], [375, 'LEVEL UP', '#d71920'], [625, 'MAKE IT COUNT', '#ffffff'], [875, 'gamesCore_', '#ffffff']] as const) {
+    c.font = text === 'gamesCore_' ? '700 22px Recoleta, Georgia, serif' : '10px Pixel, monospace';
+    c.fillStyle = color; c.fillText(text, x, 324);
+  }
   rect(0, 336, W, H - 336, '#318d68');
   const stripes = [336, 358, 390, 434, 490, 560, 644, 740];
   stripes.slice(0, -1).forEach((y, i) => rect(0, y, W, stripes[i + 1] - y, i % 2 ? '#287e60' : '#318d68'));
@@ -144,7 +148,7 @@ const keeperBody = keeperSprite.slice(0, 19).map((row, index) =>
 // Eyes have their own dark color; the nose sits a row lower in soft skin shading.
 const keeperPalette = {
   h: '#252a43', e: '#252a43', s: '#edb18a', n: '#d99a7c',
-  d: '#b7746c', t: '#6d28d9', y: '#c4b5fd', w: '#f2eac9',
+  d: '#b7746c', t: '#a70e18', y: '#f04449', w: '#f2eac9',
 };
 function keeper(c: CanvasRenderingContext2D, pose: KeeperPose) {
   const { x, y, rotation } = pose;
@@ -234,48 +238,12 @@ function ball(c: CanvasRenderingContext2D, x: number, y: number, r: number, rota
   c.drawImage(ballFrames[frame], Math.round(x - r), Math.round(y - r), r * 2, r * 2);
 }
 
-function swipeGuide(c: CanvasRenderingContext2D, time: number, reducedMotion: boolean) {
-  // Two short sweeps, anchored beneath the ball, on the same chunky pixel grid.
-  const cycle = time % 1.8;
-  const progress = reducedMotion ? 1 : Math.min(1, cycle / 1.1);
-  const tipY = FIELD.ballY - 40 - Math.round(progress * 136 / 4) * 4;
-  c.save();
-  c.globalAlpha = reducedMotion ? 1 : Math.min(1, (1.8 - cycle) / 0.3);
-  c.translate(FIELD.ballX, 0);
-  // Dark outline and offset shadow keep the red legible against the turf.
-  c.fillStyle = "#251c35";
-  c.fillRect(-12, tipY + 32, 28, FIELD.ballY - tipY - 28);
-  c.fillStyle = "#b82f45";
-  c.fillRect(-8, tipY + 32, 16, FIELD.ballY - tipY - 32);
-  c.fillStyle = "#ff514f";
-  c.fillRect(-8, tipY + 32, 8, FIELD.ballY - tipY - 32);
-  sprite(c, [
-    '.....oo.....',
-    '....orro....',
-    '...orrrro...',
-    '..orhrrrro..',
-    '.orhhrrrrro.',
-    'orhhhrrrrrro',
-    'orrrrrrrrrro',
-    'ooooorrooooo',
-  ], { o: '#251c35', r: '#ff514f', h: '#ffac91' }, -24, tipY, 4);
-  c.font = "14px Pixel, monospace";
-  c.textAlign = "center";
-  c.fillStyle = "#251c35";
-  c.fillText("SWIPE TO SHOOT", 2, FIELD.ballY - 202);
-  c.fillStyle = "#fff0d5";
-  c.fillText("SWIPE TO SHOOT", 0, FIELD.ballY - 204);
-  c.restore();
-}
-
 export type Scene = {
   preview: Shot | null;
-  shot: Shot | null;
+  shot: Strike | null;
   progress: number;
-  attempt: number;
   result: Outcome | null;
   ready: boolean;
-  swipeGuide: boolean;
   reducedMotion: boolean;
   time: number;
 };
@@ -294,7 +262,7 @@ export class Renderer {
     const context = this.backdrop.getContext("2d")!;
     context.scale(.5, .5);
     stadium(context);
-    void document.fonts.load("10px Pixel").then(() => stadium(context));
+    void Promise.all([document.fonts.load("10px Pixel"), document.fonts.load("700 22px Recoleta")]).then(() => stadium(context));
   }
   draw(state: Scene) {
     const rect = this.canvas.getBoundingClientRect();
@@ -314,7 +282,7 @@ export class Renderer {
     if (left < 0) c.drawImage(this.backdrop, 0, 0, 1, H / 2, left, 0, -left, H);
     if (left + visibleWidth > W) c.drawImage(this.backdrop, W / 2 - 1, 0, 1, H / 2, W, 0, left + visibleWidth - W, H);
     c.drawImage(this.backdrop, 0, 0, W, H);
-    let pose = keeperPose(state.shot, state.attempt, state.progress, state.time, state.reducedMotion);
+    let pose = keeperPose(state.shot, state.progress, state.time, state.reducedMotion);
     if (this.lastShot !== state.shot) {
       this.transitionPose = this.lastPose;
       this.transitionTime = state.time;
@@ -334,7 +302,7 @@ export class Renderer {
       c.setLineDash([6, 12]);
       c.lineCap = "butt";
       c.lineWidth = 3;
-      c.strokeStyle = "#c4b5fd";
+      c.strokeStyle = "#ffffff";
       c.beginPath();
       for (let i = 0; i <= 30; i++) {
         const p = ballPosition(shot, i / 30);
@@ -409,34 +377,24 @@ export class Renderer {
     } else {
       ellipse(c, 500, 622, 29, 7, "#0d2e3766");
       if (state.ready && !state.preview) {
-        c.strokeStyle = "#f5e6bb6b";
-        c.lineWidth = 1.5;
-        c.beginPath();
-        c.ellipse(500, 622, 45, 15, 0, 0, Math.PI * 2);
-        c.stroke();
-        if (!state.swipeGuide) {
-          line(
-            c,
-            [
-              [500, 556],
-              [500, 515],
-            ],
-            "#f3e7c28c",
-            2,
-          );
-          line(
-            c,
-            [
-              [491, 525],
-              [500, 515],
-              [509, 525],
-            ],
-            "#f3e7c28c",
-            2,
-          );
+        // Persistent corner cues make the goal itself the obvious tap target.
+        c.save();
+        c.strokeStyle = "#fff5d9";
+        c.fillStyle = "#d7192060";
+        c.lineWidth = 3;
+        for (const x of [290, 710]) {
+          for (const y of [215, 310]) {
+            c.beginPath();
+            c.arc(x, y, 18, 0, Math.PI * 2);
+            c.fill();
+            c.stroke();
+            c.fillStyle = "#fff5d9";
+            c.fillRect(x - 3, y - 3, 6, 6);
+            c.fillStyle = "#d7192060";
+          }
         }
+        c.restore();
       }
-      if (state.ready && state.swipeGuide) swipeGuide(c, state.time, state.reducedMotion);
       ball(c, 500, 601, 24, 0);
     }
   }

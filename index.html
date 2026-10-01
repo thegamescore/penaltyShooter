@@ -3,15 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#020617" />
-    <meta name="description" content="Step up and make it count. Play the gamesCore_ penalty shootout: pick a corner, drag the ball, and score." />
+    <meta name="theme-color" content="#d71920" />
+    <meta name="description" content="Step up and make it count. Play the gamesCore_ penalty shootout: tap a spot in the goal to shoot." />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Penalty Club | gamesCore_</title>
   </head>
   <body>
-    <main class="page">
+    <section id="start-screen" class="start-screen" aria-label="Start game">
+      <canvas id="start-background" class="start-background" width="1000" height="720" aria-hidden="true"></canvas>
+      <div class="start-content">
+        <button id="start-game" class="start-button" type="button">Start game</button>
+        <div class="start-guide">
+          <p><span id="start-shot-guide">Aim with the mouse. Click to shoot.</span></p>
+          <p class="start-keyboard">Arrows aim <span aria-hidden="true">·</span> Space shoots</p>
+        </div>
+      </div>
+    </section>
+    <main class="page" id="game" inert hidden>
       <header class="masthead">
         <a class="brand" href="https://thegamescore.com/" target="_blank" rel="noopener noreferrer" aria-label="gamesCore_ website (opens in a new tab)">gamesCore<span>_</span></a>
+        <div class="game-title"><span>Step up. Make it count.</span><h1>Penalty Club</h1></div>
         <button id="sound" class="sound" aria-pressed="false" aria-label="Mute sound" title="Toggle sound (M)">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4Z"/><path class="sound-waves" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/><path class="sound-muted" d="m16 9 6 6m0-6-6 6"/></svg>
         </button>
@@ -22,16 +33,17 @@
             <div id="history" role="img" aria-label="No shots yet"><i></i><i></i><i></i><i></i><i></i></div>
           </div>
         <div class="pitch-wrap">
-          <canvas id="pitch" width="1000" height="720" tabindex="0" aria-label="Football pitch. Drag from the ball toward the goal and release to shoot. Keyboard: arrows aim, W and S adjust power, Space shoots."></canvas>
+          <canvas id="pitch" width="1000" height="720" tabindex="0" aria-label="Football pitch. Tap or click a spot in the goal to shoot. Keyboard: arrows aim, Space or Enter shoots."></canvas>
+          <p id="goal-prompt" class="goal-prompt">Tap the goal to shoot <span aria-hidden="true">↓</span></p>
           <div id="announcement" class="announcement" aria-live="polite" aria-atomic="true"><strong id="result-title"></strong></div>
         </div>
         <div class="controls">
-          <p id="hint" class="hint">Drag the ball. Release to shoot.</p>
-          <div class="readout"><label for="power">Power</label><meter id="power" min="0" max="1" value="0"></meter><span id="power-value">—</span></div>
-          <button id="next" class="next" disabled>Next shot <span aria-hidden="true">↗</span></button>
+          <p id="hint" class="hint">Aim for a corner. Beat the keeper.</p>
+          <span class="keyboard-hint">Arrows to aim · Space to shoot</span>
+          <a class="brand mobile-brand" href="https://thegamescore.com/" target="_blank" rel="noopener noreferrer" aria-label="gamesCore_ website (opens in a new tab)">gamesCore<span>_</span></a>
         </div>
       </section>
-      <details class="help"><summary aria-label="How to play"><span class="help-label">How to play</span><span class="help-icon" aria-hidden="true">?</span></summary><div><p>Drag from the ball toward a corner. Longer drags add power; faster swipes add height.</p><p><strong>Keyboard</strong> · Focus the pitch, then use ← → to aim, ↑ ↓ for height, W / S for power, and Space to shoot. Esc cancels. M toggles sound.</p></div></details>
+      <details class="help"><summary aria-label="How to play"><span class="help-label">How to play</span><span class="help-icon" aria-hidden="true">?</span></summary><div><p><strong>Tap or click anywhere inside the goal to shoot.</strong> Aim away from the keeper. The next ball is ready automatically.</p><p><strong>Keyboard</strong> · Focus the pitch. Arrows aim; Space or Enter shoots. M toggles sound.</p></div></details>
       <footer class="brand-footer"><span>A little play. A big impression.</span><a href="https://thegamescore.com/" target="_blank" rel="noopener noreferrer" aria-label="Discover gamesCore_ (opens in a new tab)">Discover <span class="brand">gamesCore<span>_</span></span> <span aria-hidden="true">↗</span></a></footer>
     </main>
     <script type="module" src="/src/main.ts"></script>
